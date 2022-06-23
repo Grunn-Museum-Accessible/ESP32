@@ -10,24 +10,17 @@
 #include <math.h>
 
 
-// ble definitions
-
 // ble vars
 #define SERVICE_UUID              "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
 #define ROT1_CHARACTERISTIC_UUID  "667f1c78-be2e-11ec-9d64-0242ac120002"
 #define ROT2_CHARACTERISTIC_UUID  "667f1c78-be2e-11ec-9d64-0242ac120003"
+#define ROT3_CHARACTERISTIC_UUID  "667f1c78-be2e-11ec-9d64-0242ac120005"
 #define ANCHOR_POS_CHARACTERISTIC_UUID  "667f1c78-be2e-11ec-9d64-0242ac120004"
-BLECharacteristic *rot1Char;
-BLECharacteristic *rot2Char;
+
+BLECharacteristic *anchor1Char;
+BLECharacteristic *anchor2Char;
+BLECharacteristic *anchor3Char;
 BLECharacteristic *anchorPosChar;
-
-// pins for nfc server
-#define NFC_RST 23;
-#define NFC_SDA 13;
-#define NFC_SCK 12;
-#define NFC_MOSI 14;
-#define NFC_MISO 27;
-
 
 
 // pins for rotary encoder
@@ -48,13 +41,6 @@ AiEsp32RotaryEncoderNumberSelector rotNum1 = AiEsp32RotaryEncoderNumberSelector(
 AiEsp32RotaryEncoderNumberSelector rotNum2 = AiEsp32RotaryEncoderNumberSelector();
 
 
-// anchor positions
-int anchor1x;
-int anchor1y;
-
-int anchor2x;
-int anchor2y;
-
 int posX;
 int posY;
 
@@ -63,15 +49,13 @@ int posY;
 void IRAM_ATTR readEncoder1ISR()
 {
   rot1->readEncoder_ISR();
-
-
 }
 // rot 2
 void IRAM_ATTR readEncoder2ISR()
 {
   rot2->readEncoder_ISR();
-
 }
+
 // ble callbacks
 // connection callbacks
 bool _BLEClientConnected = false;
@@ -123,8 +107,8 @@ class Anchor {
   public:
 
     Anchor() {
-      this->x =0;
-      this->y=0;
+      this->x = 0;
+      this->y = 0;
     }
 
     void update(String updatePos, char splitChar = '|') {
@@ -153,7 +137,7 @@ void parseAnchorPositionString(String anchorsPos) {
 
   int sepPos;
   int counter = 0;
-  while ((sepPos = anchorsPos.indexOf(anchorsSplitChar)) != -1 && counter < 2){
+  while ((sepPos = anchorsPos.indexOf(anchorsSplitChar)) != -1 && counter < 2) {
 
     String x = anchorsPos.substring(0, sepPos);
     anchorsPos = anchorsPos.substring(sepPos + 1);
@@ -164,10 +148,10 @@ void parseAnchorPositionString(String anchorsPos) {
     counter++;
   }
   anchors[counter].update(anchorsPos);
-  
-  
 
-  for (int i=0; i < 3; i++) {
+
+
+  for (int i = 0; i < 3; i++) {
     Serial.println(anchors[i].toString());
   }
 }
@@ -202,21 +186,30 @@ void setup()
   pServer->setCallbacks(new MyServerCallbacks());
   BLEService *pService = pServer->createService(SERVICE_UUID);
 
-  rot1Char = pService->createCharacteristic(
-               ROT1_CHARACTERISTIC_UUID,
-               BLECharacteristic::PROPERTY_READ   |
-               BLECharacteristic::PROPERTY_NOTIFY
-             );
-  rot1Char->addDescriptor(new BLE2902());
-  rot1Char->setCallbacks(new RotCharCallback());
+  anchor1Char = pService->createCharacteristic(
+                  ROT1_CHARACTERISTIC_UUID,
+                  BLECharacteristic::PROPERTY_READ   |
+                  BLECharacteristic::PROPERTY_NOTIFY
+                );
+  anchor1Char->addDescriptor(new BLE2902());
+  anchor1Char->setCallbacks(new RotCharCallback());
 
-  rot2Char = pService->createCharacteristic(
-               ROT2_CHARACTERISTIC_UUID,
-               BLECharacteristic::PROPERTY_READ   |
-               BLECharacteristic::PROPERTY_NOTIFY
-             );
-  rot2Char->addDescriptor(new BLE2902());
-  rot2Char->setCallbacks(new RotCharCallback());
+  anchor2Char = pService->createCharacteristic(
+                  ROT2_CHARACTERISTIC_UUID,
+                  BLECharacteristic::PROPERTY_READ   |
+                  BLECharacteristic::PROPERTY_NOTIFY
+                );
+  anchor2Char->addDescriptor(new BLE2902());
+  anchor2Char->setCallbacks(new RotCharCallback());
+
+  anchor3Char = pService->createCharacteristic(
+                  ROT3_CHARACTERISTIC_UUID,
+                  BLECharacteristic::PROPERTY_READ   |
+                  BLECharacteristic::PROPERTY_NOTIFY
+                );
+  anchor3Char->addDescriptor(new BLE2902());
+  anchor3Char->setCallbacks(new RotCharCallback());
+
 
   anchorPosChar = pService->createCharacteristic(
                     ANCHOR_POS_CHARACTERISTIC_UUID,
@@ -244,35 +237,36 @@ void setup()
 void loop()
 {
 
+  bool changed = false;
 
-  bool rot1c = rot1->encoderChanged();
-  bool rot2c = rot2->encoderChanged();
-  if (rot1c)
-  {
-    Serial.print("rot1: ");
-    Serial.println(abs(rotNum1.getValue()));
+  if (rot1->encoderChanged()) {
     posX = rotNum1.getValue();
+    changed = true;
   }
-
-  if (rot2c)
-  {
-    Serial.print("rot2: ");
-    Serial.println(abs(rotNum2.getValue()));
+  if (rot2->encoderChanged()) {
     posY = rotNum2.getValue();
+    changed = true;
   }
 
-  if (rot1c || rot2c) {
-    Serial.println(posX);
-    Serial.println(posY);
-    Serial.print("Anchor 1: \t"); Serial.println(anchors[0].distanceToCoords(posX, posY));
-    Serial.print("Anchor 2: \t"); Serial.println(anchors[1].distanceToCoords(posX, posY));
+  if (changed) {
+    debugPos();
 
-    rot1Char->setValue(String(anchors[0].distanceToCoords(posX, posY)).c_str());
-    rot2Char->setValue(String(anchors[1].distanceToCoords(posX, posY)).c_str());
-    rot1Char->notify();
-    rot2Char->notify();
+    anchor1Char->setValue(String(anchors[0].distanceToCoords(posX, posY)).c_str());
+    anchor2Char->setValue(String(anchors[1].distanceToCoords(posX, posY)).c_str());
+    anchor3Char->setValue(String(anchors[2].distanceToCoords(posX, posY)).c_str());
+    anchor1Char->notify();
+    anchor2Char->notify();
+    anchor3Char->notify();
   }
 
 
 }
 
+void debugPos() {
+  Serial.println("\nX: " + String(posX) + "\tY: " + String(posY));
+  Serial.print("Anchor 1: \t"); Serial.println(anchors[0].distanceToCoords(posX, posY));
+  Serial.print("Anchor 2: \t"); Serial.println(anchors[1].distanceToCoords(posX, posY));
+  Serial.print("Anchor 3: \t"); Serial.println(anchors[2].distanceToCoords(posX, posY));
+  Serial.println("--------------------");
+
+}
